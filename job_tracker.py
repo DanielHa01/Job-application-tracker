@@ -44,9 +44,15 @@ class JobApplicationTracker:
         if os.path.exists(self.data_file):
             with open(self.data_file, 'rb') as f:
                 self.data = pickle.load(f)
+            # Ensure the Index column exists and is correctly populated
+            if 'Index' not in self.data.columns:
+                self.data.insert(0, 'Index', range(1, len(self.data) + 1))
+            else:
+                self.data = self.data.sort_values('Index').reset_index(drop=True)
+                self.data['Index'] = range(1, len(self.data) + 1)
         else:
             self.data = pd.DataFrame(columns=[
-                "Company Name", "Job Title", "Application Date", "Status",
+                "Index", "Company Name", "Job Title", "Application Date", "Status",
                 "Job URL", "Company Website", "Location", "Salary Range",
                 "Contact Person", "Contact Email/Phone", "Application Method",
                 "Resume Version", "Cover Letter Version", "Interview Date",
@@ -88,38 +94,41 @@ class JobApplicationTracker:
         self.fields = {}
         row = 0
         for field in self.data.columns:
-            ttk.Label(input_frame, text=f"{field}:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
-            
-            if field == "Application Date":
-                self.fields[field] = DateEntry(input_frame, width=20, background='darkblue', foreground='white', borderwidth=2)
-            elif field in ["Interview Date", "Follow-up Date"]:
-                date_frame = ttk.Frame(input_frame)
-                date_frame.grid(row=row, column=1, sticky=tk.W)
-                self.fields[f"{field}_check"] = tk.BooleanVar()
-                check = ttk.Checkbutton(date_frame, text="No date", variable=self.fields[f"{field}_check"], 
-                                        command=lambda f=field: self.toggle_date(f))
-                check.pack(side=tk.LEFT)
-                self.fields[field] = DateEntry(date_frame, width=20, background='darkblue', foreground='white', borderwidth=2)
-                self.fields[field].pack(side=tk.LEFT)
-            elif field == "Status":
-                self.fields[field] = ttk.Combobox(input_frame, values=["Applied", "Interview Scheduled", "Rejected", "Offer Received"])
-            elif field == "Priority":
-                self.fields[field] = ttk.Combobox(input_frame, values=["Low", "Medium", "High"])
-            elif field in ["Resume Version", "Cover Letter Version"]:
-                file_frame = ttk.Frame(input_frame)
-                file_frame.grid(row=row, column=1, sticky=tk.W)
-                self.fields[field] = ttk.Combobox(file_frame, width=30)
-                self.fields[field].pack(side=tk.LEFT)
-                ttk.Button(file_frame, text="Upload", command=lambda f=field: self.upload_file(f)).pack(side=tk.LEFT)
-                self.update_file_list(field)
-            elif field in ["Notes", "Next Steps"]:
-                self.fields[field] = tk.Text(input_frame, width=40, height=3)
-            else:
-                self.fields[field] = ttk.Entry(input_frame, width=40)
-            
-            if field not in ["Interview Date", "Follow-up Date", "Resume Version", "Cover Letter Version"]:
-                self.fields[field].grid(row=row, column=1, pady=2, padx=5, sticky=tk.W)
-            row += 1
+            if field != "Index":  # Skip the Index field
+                ttk.Label(input_frame, text=f"{field}:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+
+                if field == "Application Date":
+                    self.fields[field] = DateEntry(input_frame, width=20, background='darkblue', foreground='white', borderwidth=2)
+                elif field in ["Interview Date", "Follow-up Date"]:
+                    date_frame = ttk.Frame(input_frame)
+                    date_frame.grid(row=row, column=1, sticky=tk.W)
+                    self.fields[f"{field}_check"] = tk.BooleanVar()
+                    check = ttk.Checkbutton(date_frame, text="No date", variable=self.fields[f"{field}_check"], 
+                                            command=lambda f=field: self.toggle_date(f))
+                    check.pack(side=tk.LEFT)
+                    self.fields[field] = DateEntry(date_frame, width=20, background='darkblue', foreground='white', borderwidth=2)
+                    self.fields[field].pack(side=tk.LEFT)
+                elif field == "Status":
+                    self.fields[field] = ttk.Combobox(input_frame, values=["Applied", "Interview Scheduled", "Rejected", "Offer Received"])
+                elif field == "Priority":
+                    self.fields[field] = ttk.Combobox(input_frame, values=["Low", "Medium", "High"])
+                elif field in ["Resume Version", "Cover Letter Version"]:
+                    file_frame = ttk.Frame(input_frame)
+                    file_frame.grid(row=row, column=1, sticky=tk.W)
+                    self.fields[field] = ttk.Combobox(file_frame, width=30)
+                    self.fields[field].pack(side=tk.LEFT)
+                    ttk.Button(file_frame, text="Upload", command=lambda f=field: self.upload_file(f)).pack(side=tk.LEFT)
+                    self.update_file_list(field)
+                elif field in ["Notes", "Next Steps"]:
+                    self.fields[field] = tk.Text(input_frame, width=40, height=3)
+                elif field == "Application Method":
+                    self.fields[field] = ttk.Combobox(input_frame, values=["Company's Website", "LinkedIn", "Indeed", "Glassdoor", "Referral", "Email", "Job Board", "Other"])
+                else:
+                    self.fields[field] = ttk.Entry(input_frame, width=40)
+                
+                if field not in ["Interview Date", "Follow-up Date", "Resume Version", "Cover Letter Version"]:
+                    self.fields[field].grid(row=row, column=1, pady=2, padx=5, sticky=tk.W)
+                row += 1
 
         # Buttons
         button_frame = ttk.Frame(self.master)
@@ -171,7 +180,9 @@ class JobApplicationTracker:
             else:
                 new_entry[field] = widget.get()
 
+        new_entry["Index"] = len(self.data) + 1
         self.data = self.data._append(new_entry, ignore_index=True)
+        self.save_data()
         messagebox.showinfo("Success", "Entry added successfully!")
         self.clear_fields()
 
@@ -204,6 +215,15 @@ class JobApplicationTracker:
         view_window.title("View Entries")
         view_window.geometry("1000x600")
 
+        # Add search frame
+        search_frame = ttk.Frame(view_window)
+        search_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=5)
+        search_entry = ttk.Entry(search_frame, width=40)
+        search_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Button(search_frame, text="Search", command=lambda: self.search_entries(tree, search_entry.get())).pack(side=tk.LEFT, padx=5)
+
         # Create a frame to hold the treeview and scrollbars
         frame = ttk.Frame(view_window)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -219,19 +239,24 @@ class JobApplicationTracker:
         # Create a treeview with both scrollbars
         tree = ttk.Treeview(frame, columns=list(self.data.columns), show='headings',
                             yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Ensure Index column is first
+        columns = ["Index"] + [col for col in self.data.columns if col != "Index"]
+        tree = ttk.Treeview(frame, columns=columns, show='headings',
+                            yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
         # Configure the scrollbars
         v_scrollbar.config(command=tree.yview)
         h_scrollbar.config(command=tree.xview)
 
         # Set column headings and adjust column widths
-        for col in self.data.columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=100, minwidth=100)  # Set a minimum width to prevent columns from disappearing
+        for col in columns:
+            tree.heading(col, text=col, command=lambda _col=col: self.sort_treeview(tree, _col, False))
+            tree.column(col, width=100, minwidth=100)
 
         # Add data to the treeview
         for i, row in self.data.iterrows():
-            tree.insert('', 'end', values=list(row))
+            tree.insert('', 'end', values=[row['Index']] + [row[col] for col in columns if col != 'Index'])
 
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -257,6 +282,39 @@ class JobApplicationTracker:
 
         # Adjust column widths after adding data
         adjust_column_widths()
+    
+    def search_entries(self, tree, search_term):
+        tree.delete(*tree.get_children())
+        for i, row in self.data.iterrows():
+            if search_term.lower() in str(row).lower():
+                tree.insert('', 'end', values=list(row))
+    
+    def sort_treeview(self, tree, col, reverse):
+        l = [(tree.set(k, col), k) for k in tree.get_children('')]
+        l.sort(key=lambda t: self.sort_key(t[0]), reverse=reverse)
+
+        # Rearrange items in sorted positions
+        for index, (val, k) in enumerate(l):
+            tree.move(k, '', index)
+
+        # Update the heading with an arrow indicating sort direction
+        for c in tree['columns']:
+            tree.heading(c, text=c.split(' ')[0])  # Remove existing arrows
+        new_text = f"{col} {'▼' if reverse else '▲'}"
+        tree.heading(col, text=new_text)
+
+        # Reverse sort next time
+        tree.heading(col, command=lambda: self.sort_treeview(tree, col, not reverse))
+        
+    def sort_key(self, value):
+        # Try to convert to int or float for numeric sorting
+        try:
+            return int(value)
+        except ValueError:
+            try:
+                return float(value)
+            except ValueError:
+                return value.lower()  # Fall back to case-insensitive string comparison
 
     def edit_entry(self, tree):
         selected_item = tree.selection()
@@ -265,7 +323,7 @@ class JobApplicationTracker:
             return
 
         item = tree.item(selected_item)
-        index = tree.index(selected_item)
+        index = int(item['values'][0]) - 1  # Get the actual index from the "Index" column
         values = item['values']
 
         edit_window = tk.Toplevel(self.master)
@@ -336,8 +394,8 @@ class JobApplicationTracker:
                 entry_fields[col].grid(row=i, column=1, pady=2, padx=5, sticky=tk.W)
 
         def save_edit():
-            new_values = []
-            for col in self.data.columns:
+            new_values = [values[0]]  # Keep the original index
+            for col in self.data.columns[1:]:  # Skip the "Index" column
                 if col in ["Interview Date", "Follow-up Date"]:
                     if entry_fields[f"{col}_check"].get():
                         new_values.append("")
@@ -389,20 +447,37 @@ class JobApplicationTracker:
             return
 
         if messagebox.askyesno("Confirm Deletion", "Are you sure you want to delete this entry?"):
-            index = tree.index(selected_item)
-            self.data = self.data.drop(self.data.index[index]).reset_index(drop=True)
-            self.save_data()
-            tree.delete(selected_item)
-            messagebox.showinfo("Success", "Entry deleted successfully!")
+            item = tree.item(selected_item)
+            try:
+                index = next(i for i, v in enumerate(item['values']) if str(v).isdigit()) # Find the index column
+                index_value = int(item['values'][index]) - 1  # Get the actual index from the "Index" column
+                self.data = self.data[self.data['Index'] != index_value + 1].reset_index(drop=True)
+                self.data['Index'] = range(1, len(self.data) + 1)  # Reindex the remaining entries
+                self.save_data()
+                tree.delete(selected_item)
+                self.refresh_view(tree)  # Refresh the view to update all indices
+                messagebox.showinfo("Success", "Entry deleted successfully!")
+            except ValueError:
+                messagebox.showerror("Error", "Unable to delete entry. Invalid index found.")
 
     def save_to_excel(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx")
+        default_filename = "job_application_tracker.xlsx"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=default_filename
+        )
         if file_path:
             self.data.to_excel(file_path, index=False)
             messagebox.showinfo("Success", f"Data saved to {file_path}")
 
     def save_to_csv(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".csv")
+        default_filename = "job_application_tracker.csv"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            initialfile=default_filename
+        )
         if file_path:
             self.data.to_csv(file_path, index=False)
             messagebox.showinfo("Success", f"Data saved to {file_path}")
@@ -467,9 +542,15 @@ class JobApplicationTracker:
         def apply_mapping():
             new_data = pd.DataFrame(columns=self.data.columns)
             for app_col, import_col in mapping.items():
-                if import_col.get():
+                if import_col.get() and app_col != "Index":
                     # Handle empty cells
                     new_data[app_col] = imported_df[import_col.get()].fillna('').astype(str).replace('nan', '')
+            
+            # Add Index column
+            new_data['Index'] = range(1, len(new_data) + 1)
+            
+            # Reorder columns to ensure Index is first
+            new_data = new_data[['Index'] + [col for col in new_data.columns if col != 'Index']]
             
             # Replace the current data with the new data
             self.data = new_data
