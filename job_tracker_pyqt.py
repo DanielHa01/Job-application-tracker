@@ -39,6 +39,8 @@ class JobApplicationTracker(QMainWindow):
 
         self.required_fields = ["Company Name", "Job Title", "Status", "Company Website", "Location", "Application Method", "Resume Version", "Term"]
 
+        self.total_apps_label = None
+
         self.load_data()
 
         # Create central widget and main layout
@@ -61,7 +63,7 @@ class JobApplicationTracker(QMainWindow):
                 logging.info(f"Data loaded successfully from {self.data_file}")
             else:
                 self.data = pd.DataFrame(columns=[
-                    "Index", "Company Name", "Job Title", "Position", "Business Type", "Term",
+                    "Index", "Company Name", "Job Title", "Position", "Industry", "Term",
                     "Application Date", "Status", "Job URL", "Company Website", "Location", 
                     "Salary Range", "Contact Person", "Contact Email/Phone", "Application Method",
                     "Resume Version", "Cover Letter Version", "Interview Date", "Follow-up Date", 
@@ -72,7 +74,7 @@ class JobApplicationTracker(QMainWindow):
             logging.error(f"Error loading data: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load data: {str(e)}\nCreating new data file.")
             self.data = pd.DataFrame(columns=[
-                "Index", "Company Name", "Job Title", "Position", "Business Type", "Term",
+                "Index", "Company Name", "Job Title", "Position", "Industry", "Term",
                 "Application Date", "Status", "Job URL", "Company Website", "Location", 
                 "Salary Range", "Contact Person", "Contact Email/Phone", "Application Method",
                 "Resume Version", "Cover Letter Version", "Interview Date", "Follow-up Date", 
@@ -192,13 +194,23 @@ class JobApplicationTracker(QMainWindow):
         self.init_dashboard()
 
         # Add total applications count
-        total_apps = QLabel(f"Total Applications: {len(self.data)}")
-        self.main_layout.addWidget(total_apps)
+        self.total_apps_label = QLabel(f"Total Applications: {len(self.data)}")
+        self.main_layout.addWidget(self.total_apps_label)
 
     def upload_file(self, file_type, combo_box=None):
         file_path, _ = QFileDialog.getOpenFileName(self, f"Upload {file_type.replace('_', ' ').title()}", "", "All Files (*)")
         if file_path:
             file_name = os.path.basename(file_path)
+            file_name_parts = file_name.split('.')
+            if len(file_name_parts) <= 1:
+                QMessageBox.critical(self, "Error", "Invalid file")
+                return
+            file_name = ""
+            for i in range(len(file_name_parts) - 1):
+                file_name += file_name_parts[i]
+                if i < len(file_name_parts) - 2:
+                    file_name += "."
+            file_name += datetime.now().strftime("_%m_%d_%Y") + "." + file_name_parts[-1]
             if file_type == "resume":
                 dest_folder = self.resume_folder
                 if not combo_box:
@@ -220,6 +232,10 @@ class JobApplicationTracker(QMainWindow):
             self.fields[field].setEnabled(False)
         else:
             self.fields[field].setEnabled(True)
+
+    def update_total_apps_count(self):
+        if self.total_apps_label:
+            self.total_apps_label.setText(f"Total Applications: {len(self.data)}")
 
     def add_entry(self):
         new_entry = {}
@@ -256,6 +272,7 @@ class JobApplicationTracker(QMainWindow):
         self.data = self.data._append(new_entry, ignore_index=True)
         self.save_data()
         self.update_dashboard()
+        self.update_total_apps_count()
         QMessageBox.information(self, "Success", "Entry added successfully!")
         self.clear_fields()
 
@@ -478,6 +495,7 @@ class JobApplicationTracker(QMainWindow):
             QMessageBox.warning(self, "Missing Fields", f"Please fill in the following required fields: {', '.join(missing_fields)}")
             return
 
+        updated_data["Index"] = row + 1
         self.data.iloc[row] = updated_data
 
         self.save_data()
@@ -499,6 +517,7 @@ class JobApplicationTracker(QMainWindow):
             self.save_data()
             self.refresh_table(self.table)
             self.update_dashboard()
+            self.update_total_apps_count()
             QMessageBox.information(self, "Success", "Entry deleted successfully!")
 
     def refresh_table(self, table, display_columns):
@@ -592,6 +611,9 @@ class JobApplicationTracker(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to import file: {str(e)}")
     
     def init_dashboard(self):
+        # Close all existing figures
+        plt.close('all')
+
         dashboard_widget = QWidget()
         dashboard_layout = QVBoxLayout(dashboard_widget)
 
@@ -610,16 +632,18 @@ class JobApplicationTracker(QMainWindow):
         self.application_method_bar_fig, application_method_bar_canvas = self.create_application_method_bar()
         self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas = self.create_resume_cover_letter_bar()
         self.status_stacked_area_fig, status_stacked_area_canvas = self.create_status_stacked_area()
+        self.industry_pie_fig, industry_pie_canvas = self.create_industry_pie()
 
         # Create scalable graph widgets
-        status_pie_widget = ScalableGraphWidget(self.status_pie_fig, status_pie_canvas, 'Applications by Status', fixed_height=400)
-        company_bar_widget = ScalableGraphWidget(self.company_bar_fig, company_bar_canvas, 'Top Companies by Applications', fixed_height=600)
-        timeline_line_widget = ScalableGraphWidget(self.timeline_line_fig, timeline_line_canvas, 'Applications Over Time', fixed_height=400)
-        job_title_bar_widget = ScalableGraphWidget(self.job_title_bar_fig, job_title_bar_canvas, 'Top 10 Job Titles', fixed_height=600)
-        term_bar_widget = ScalableGraphWidget(self.term_bar_fig, term_bar_canvas, 'Applications by Term', fixed_height=400)
-        application_method_bar_widget = ScalableGraphWidget(self.application_method_bar_fig, application_method_bar_canvas, 'Applications by Method', fixed_height=600)
-        resume_cover_letter_bar_widget = ScalableGraphWidget(self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas, 'Applications by Resume and Cover Letter Version', fixed_height=800)
+        status_pie_widget = ScalableGraphWidget(self.status_pie_fig, status_pie_canvas, 'Applications by Status', fixed_height=500, legend=True)
+        company_bar_widget = ScalableGraphWidget(self.company_bar_fig, company_bar_canvas, 'Top Companies by Applications', fixed_height=1000)
+        timeline_line_widget = ScalableGraphWidget(self.timeline_line_fig, timeline_line_canvas, 'Applications Over Time', fixed_height=800)
+        job_title_bar_widget = ScalableGraphWidget(self.job_title_bar_fig, job_title_bar_canvas, 'Top 10 Job Postitions', fixed_height=1000)
+        term_bar_widget = ScalableGraphWidget(self.term_bar_fig, term_bar_canvas, 'Applications by Term', fixed_height=800)
+        application_method_bar_widget = ScalableGraphWidget(self.application_method_bar_fig, application_method_bar_canvas, 'Applications by Method', fixed_height=1000)
+        resume_cover_letter_bar_widget = ScalableGraphWidget(self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas, 'Applications by Resume and Cover Letter Version', fixed_height=1200)
         status_stacked_area_widget = ScalableGraphWidget(self.status_stacked_area_fig, status_stacked_area_canvas, 'Application Statuses Over Time', fixed_height=600)
+        industry_pie_widget = ScalableGraphWidget(self.industry_pie_fig, industry_pie_canvas, 'Applications by Industry', fixed_height=500, legend=True)
 
         # Add scalable graph widgets to the scroll layout
         scroll_layout.addWidget(status_pie_widget)
@@ -630,6 +654,8 @@ class JobApplicationTracker(QMainWindow):
         scroll_layout.addWidget(application_method_bar_widget)
         scroll_layout.addWidget(resume_cover_letter_bar_widget)
         scroll_layout.addWidget(status_stacked_area_widget)
+        scroll_layout.addWidget(industry_pie_widget)
+
         # Set the scroll content and add to main layout
         scroll_content.setLayout(scroll_layout)
         scroll_area.setWidget(scroll_content)
@@ -653,23 +679,22 @@ class JobApplicationTracker(QMainWindow):
     
     def create_status_pie(self):
         status_counts = self.data['Status'].value_counts()
+        status_counts = self.group_small_values(status_counts, threshold=5)
         
-        fig, ax = plt.subplots(figsize=(8, 6))  # 4:3 aspect ratio
-        ax.pie(status_counts.values, labels=status_counts.index, autopct='%1.1f%%')
+        fig, ax = plt.subplots(figsize=(10, 7))
+        colors = plt.cm.Set3(np.linspace(0, 1, len(status_counts)))
+        wedges, texts, autotexts = ax.pie(status_counts.values, colors=colors, autopct=lambda pct: f"{pct:.1f}%\n({int(pct/100.*sum(status_counts))})", pctdistance=0.75)
+        
         ax.set_title('Applications by Status')
         
-        canvas = FigureCanvas(fig)
-        return fig, canvas
-
-    def create_company_bar(self):
-        company_counts = self.data['Company Name'].value_counts().head(10)
+        # Add legend
+        ax.legend(wedges, status_counts.index,
+                title="Statuses",
+                loc="center left",
+                bbox_to_anchor=(1, 0, 0.5, 1))
         
-        fig, ax = plt.subplots(figsize=(12, 10))  # 4:3 aspect ratio
-        ax.bar(company_counts.index, company_counts.values)
-        ax.set_title('Top 10 Companies by Applications')
-        ax.set_xlabel('Company')
-        ax.set_ylabel('Number of Applications')
-        plt.xticks(rotation=45, ha='right')
+        plt.setp(autotexts, size=8, weight="bold")
+        ax.set_aspect("equal")
         
         canvas = FigureCanvas(fig)
         return fig, canvas
@@ -684,21 +709,34 @@ class JobApplicationTracker(QMainWindow):
         ax.set_xlabel('Date')
         ax.set_ylabel('Number of Applications')
         
+        # Set x-axis ticks to be 10 days apart
+        start_date = date_counts.index.min()
+        end_date = date_counts.index.max()
+        date_range = pd.date_range(start=start_date, end=end_date, freq='5D')
+        ax.set_xticks(date_range)
+        ax.set_xticklabels(date_range.strftime('%Y-%m-%d'), rotation=45, ha='right')
+        
+        plt.tight_layout()
+        
         canvas = FigureCanvas(fig)
         return fig, canvas
     
     def create_job_title_bar(self):
-        job_title_counts = self.data['Job Title'].value_counts().head(10)
+        job_title_counts = self.data['Position'].value_counts().head(10)
         
         fig, ax = plt.subplots(figsize=(12, 9))
         bars = ax.bar(range(len(job_title_counts)), job_title_counts.values)
-        ax.set_title('Top 10 Job Titles')
+        ax.set_title('Top 10 Job Positions')
         ax.set_ylabel('Number of Applications')
         
         # Wrap x-axis labels
         wrapped_labels = [textwrap.fill(label, width=20) for label in job_title_counts.index]
         ax.set_xticks(range(len(job_title_counts)))
         ax.set_xticklabels(wrapped_labels, rotation=45, ha='right')
+
+        # Add value labels on the bars
+        for i, v in enumerate(job_title_counts.values):
+            ax.text(i, v, str(v), ha='center', va='bottom')
         
         # Adjust layout to prevent cutoff
         plt.tight_layout()
@@ -719,6 +757,10 @@ class JobApplicationTracker(QMainWindow):
         ax.set_xticks(range(len(company_counts)))
         ax.set_xticklabels(wrapped_labels, rotation=45, ha='right')
         
+        # Add value labels on the bars
+        for i, v in enumerate(company_counts.values):
+            ax.text(i, v, str(v), ha='center', va='bottom')
+        
         # Adjust layout to prevent cutoff
         plt.tight_layout()
         
@@ -738,6 +780,10 @@ class JobApplicationTracker(QMainWindow):
         ax.set_xticks(range(len(term_counts)))
         ax.set_xticklabels(wrapped_labels, rotation=45, ha='right')
         
+        # Add value labels on the bars
+        for i, v in enumerate(term_counts.values):
+            ax.text(i, v, str(v), ha='center', va='bottom')
+
         # Adjust layout to prevent cutoff
         plt.tight_layout()
         
@@ -757,6 +803,10 @@ class JobApplicationTracker(QMainWindow):
         ax.set_xticks(range(len(method_counts)))
         ax.set_xticklabels(wrapped_labels, rotation=45, ha='right')
         
+        # Add value labels on the bars
+        for i, v in enumerate(method_counts.values):
+            ax.text(i, v, str(v), ha='center', va='bottom')
+
         # Adjust layout to prevent cutoff
         plt.tight_layout()
         
@@ -768,8 +818,8 @@ class JobApplicationTracker(QMainWindow):
         cover_letter_counts = self.data['Cover Letter Version'].value_counts()
 
         # Preprocess labels
-        resume_labels = [self.preprocess_label(label) for label in resume_counts.index]
-        cover_letter_labels = [self.preprocess_label(label) for label in cover_letter_counts.index]
+        resume_labels = [self.preprocess_label(label) if self.preprocess_label(label) != "" else "None" for label in resume_counts.index]
+        cover_letter_labels = [self.preprocess_label(label) if self.preprocess_label(label) != "" else "None" for label in cover_letter_counts.index]
         
         # Calculate the number of bars
         n_resume = len(resume_counts)
@@ -780,23 +830,23 @@ class JobApplicationTracker(QMainWindow):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, fig_height))
         
         # Resume Version chart
-        bars1 = ax1.barh(range(n_resume), resume_counts.values)
+        bars1 = ax1.bar(range(len(resume_labels)), resume_counts.values)
         ax1.set_title('Applications by Resume Version')
-        ax1.set_xlabel('Number of Applications')
-        ax1.set_yticks(range(n_resume))
-        ax1.set_yticklabels(resume_labels)
+        ax1.set_ylabel('Number of Applications')
+        ax1.set_xlabel('Resume Version')
         
         # Cover Letter Version chart
-        bars2 = ax2.barh(range(n_cover), cover_letter_counts.values)
+        bars2 = ax2.bar(range(len(cover_letter_labels)), cover_letter_counts.values)
         ax2.set_title('Applications by Cover Letter Version')
-        ax2.set_xlabel('Number of Applications')
-        ax2.set_yticks(range(n_cover))
-        ax2.set_yticklabels(cover_letter_labels)
+        ax2.set_ylabel('Number of Applications')
+        ax2.set_xlabel('Cover Letter Version')
         
-        # Add value labels on the bars
-        for ax in [ax1, ax2]:
+        # Add value labels on the bars and set x-axis labels
+        for ax, labels in zip([ax1, ax2], [resume_labels, cover_letter_labels]):
             for i, v in enumerate(ax.containers[0]):
-                ax.text(v.get_width(), i, str(v.get_width()), va='center')
+                ax.text(i, v.get_height(), str(v.get_height()), ha='center', va='bottom')
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=45, ha='right')
         
         # Adjust layout to prevent cutoff
         plt.tight_layout()
@@ -819,18 +869,49 @@ class JobApplicationTracker(QMainWindow):
         ax.set_xlabel('Date')
         ax.set_ylabel('Number of Applications')
         
+        # Set x-axis ticks to be 10 days apart
+        start_date = status_over_time.index.min()
+        end_date = status_over_time.index.max()
+        date_range = pd.date_range(start=start_date, end=end_date, freq='10D')
+        ax.set_xticks(date_range)
+        ax.set_xticklabels(date_range.strftime('%Y-%m-%d'), rotation=45, ha='right')
+        
         # Wrap legend labels
         handles, labels = ax.get_legend_handles_labels()
         wrapped_labels = [textwrap.fill(label, width=15) for label in labels]
         ax.legend(handles, wrapped_labels, loc='upper left')
         
-        # Adjust layout to prevent cutoff
         plt.tight_layout()
+        
+        canvas = FigureCanvas(fig)
+        return fig, canvas
+    
+    def create_industry_pie(self):
+        industry_counts = self.data['Industry'].value_counts()
+        industry_counts = self.group_small_values(industry_counts, threshold=3)
+        
+        fig, ax = plt.subplots(figsize=(10, 7))
+        colors = plt.cm.Set3(np.linspace(0, 1, len(industry_counts)))
+        wedges, texts, autotexts = ax.pie(industry_counts.values, colors=colors, autopct=lambda pct: f"{pct:.1f}%\n({int(pct/100.*sum(industry_counts))})", pctdistance=0.75)
+        
+        ax.set_title('Applications by Industry')
+        
+        # Add legend
+        ax.legend(wedges, industry_counts.index,
+                title="Industries",
+                loc="center left",
+                bbox_to_anchor=(1, 0, 0.5, 1))
+        
+        plt.setp(autotexts, size=8, weight="bold")
+        ax.set_aspect("equal")
         
         canvas = FigureCanvas(fig)
         return fig, canvas
 
     def update_dashboard(self):
+        # Close all existing figures
+        plt.close('all')
+
         # Get the dashboard widget and its layout
         dashboard_widget = self.tab_widget.widget(1)
         dashboard_layout = dashboard_widget.layout()
@@ -855,16 +936,18 @@ class JobApplicationTracker(QMainWindow):
         self.application_method_bar_fig, application_method_bar_canvas = self.create_application_method_bar()
         self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas = self.create_resume_cover_letter_bar()
         self.status_stacked_area_fig, status_stacked_area_canvas = self.create_status_stacked_area()
+        self.industry_pie_fig, industry_pie_canvas = self.create_industry_pie()
 
         # Create new scalable graph widgets
-        status_pie_widget = ScalableGraphWidget(self.status_pie_fig, status_pie_canvas, 'Applications by Status', fixed_height=400)
+        status_pie_widget = ScalableGraphWidget(self.status_pie_fig, status_pie_canvas, 'Applications by Status', fixed_height=500, legend=True)
         company_bar_widget = ScalableGraphWidget(self.company_bar_fig, company_bar_canvas, 'Top Companies by Applications', fixed_height=1000)
         timeline_line_widget = ScalableGraphWidget(self.timeline_line_fig, timeline_line_canvas, 'Applications Over Time', fixed_height=800)
-        job_title_bar_widget = ScalableGraphWidget(self.job_title_bar_fig, job_title_bar_canvas, 'Top 10 Postition', fixed_height=1000)
+        job_title_bar_widget = ScalableGraphWidget(self.job_title_bar_fig, job_title_bar_canvas, 'Top 10 Job Postitions', fixed_height=1000)
         term_bar_widget = ScalableGraphWidget(self.term_bar_fig, term_bar_canvas, 'Applications by Term', fixed_height=800)
         application_method_bar_widget = ScalableGraphWidget(self.application_method_bar_fig, application_method_bar_canvas, 'Applications by Method', fixed_height=1000)
-        resume_cover_letter_bar_widget = ScalableGraphWidget(self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas, 'Applications by Resume and Cover Letter Version', fixed_height=800)
+        resume_cover_letter_bar_widget = ScalableGraphWidget(self.resume_cover_letter_bar_fig, resume_cover_letter_bar_canvas, 'Applications by Resume and Cover Letter Version', fixed_height=1200)
         status_stacked_area_widget = ScalableGraphWidget(self.status_stacked_area_fig, status_stacked_area_canvas, 'Application Statuses Over Time', fixed_height=600)
+        industry_pie_widget = ScalableGraphWidget(self.industry_pie_fig, industry_pie_canvas, 'Applications by Industry', fixed_height=500, legend=True)
 
         # Add new scalable graph widgets to the scroll layout
         scroll_layout.addWidget(status_pie_widget)
@@ -875,6 +958,7 @@ class JobApplicationTracker(QMainWindow):
         scroll_layout.addWidget(application_method_bar_widget)
         scroll_layout.addWidget(resume_cover_letter_bar_widget)
         scroll_layout.addWidget(status_stacked_area_widget)
+        scroll_layout.addWidget(industry_pie_widget)
 
         # Update the scroll area
         scroll_area.setWidget(scroll_content)
@@ -882,18 +966,30 @@ class JobApplicationTracker(QMainWindow):
     def preprocess_label(self, label):
         parts = label.split('.')
         if len(parts) > 1:
-            # If it's a filename with extension, keep the extension
+            # If it's a filename with extension, get rid of the extension
             label = parts[0]
+        # Split the file name to keep the date only
         parts = label.split('_')
         return '/'.join(parts[-3:])
-
+    
+    def group_small_values(self, data, threshold=3):
+        mask = data >= threshold
+        main_data = data[mask]
+        other_data = data[~mask]
+        
+        if other_data.sum() > 0:
+            return pd.concat([main_data, pd.Series({'Other': other_data.sum()})])
+        else:
+            return main_data
+        
 class ScalableGraphWidget(QWidget):
-    def __init__(self, fig, canvas, title, fixed_height=400):
+    def __init__(self, fig, canvas, title, fixed_height=400, legend=False):
         super().__init__()
         self.fig = fig
         self.canvas = canvas
         self.title = title
         self.fixed_height = fixed_height
+        self.legend = legend
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(QLabel(title))
         self.layout.addWidget(self.canvas)
@@ -913,10 +1009,16 @@ class ScalableGraphWidget(QWidget):
         new_height = self.fixed_height / self.fig.dpi
         
         self.fig.set_size_inches(new_width, new_height)
+        if self.legend:
+            self.fig.subplots_adjust(right=0.7)
         self.canvas.draw()
 
     def sizeHint(self):
-        return QSize(400, self.fixed_height + 30)  # Add 30 for the title label
+        return QSize(500, self.fixed_height + 50)  # Add 30 for the title label
+    
+    def closeEvent(self, event):
+        plt.close(self.fig)
+        super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
